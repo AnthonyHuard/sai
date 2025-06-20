@@ -1,7 +1,12 @@
-﻿Param(
+[CmdletBinding()]
+Param(
+    [ValidateNotNullOrEmpty()]
     [string]$SiteName = "SAI",
+    [ValidateNotNullOrEmpty()]
     [string]$VirtualPath = "/Archives",
+    [ValidateNotNullOrEmpty()]
     [string]$PhysicalPath = "C:\\SAI\\Archives",
+    [ValidateNotNullOrEmpty()]
     [string]$AuthUserGroup = "Everyone",
     [switch]$UseBasicAuth = $false
 )
@@ -15,8 +20,11 @@ $features = @('Web-Server', 'Web-DAV-Publishing', 'Web-Dir-Browsing', 'Web-Basic
 try {
     $toInstall = $features | Where-Object { (Get-WindowsFeature $_).Installed -eq $false }
     if ($toInstall.Count -gt 0) {
-        Install-WindowsFeature $toInstall -IncludeAllSubFeature -IncludeManagementTools | Out-Null
+        $result = Install-WindowsFeature $toInstall -IncludeAllSubFeature -IncludeManagementTools
         Write-Host "Installed features: $($toInstall -join ', ')"
+        if ($result.RestartNeeded -eq 'Yes') {
+            Write-Warning 'Un redémarrage est nécessaire pour terminer l\'installation.'
+        }
     } else {
         Write-Host "Required features already installed."
     }
@@ -53,7 +61,10 @@ Set-WebConfigurationProperty -Filter "system.webServer/webdav" -Location $locati
 
 # 5. Configure authoring rules
 Write-Host "Configuring WebDAV authoring rules..."
-Add-WebConfiguration "/system.webServer/webdav/authoringRules" -Location $location -Value @{path='/';users=$AuthUserGroup;roles='';permissions='Read,Write'}
+$existingRule = Get-WebConfiguration "/system.webServer/webdav/authoringRules/add[@path='/']" -Location $location -ErrorAction SilentlyContinue
+if (-not $existingRule) {
+    Add-WebConfiguration "/system.webServer/webdav/authoringRules" -Location $location -Value @{path='/';users=$AuthUserGroup;roles='';permissions='Read,Write'}
+}
 
 # 6. Enable Directory Browsing
 Write-Host "Enabling Directory Browsing..."
@@ -61,8 +72,14 @@ Set-WebConfigurationProperty -Filter "system.webServer/directoryBrowse" -Locatio
 
 # 7. Allow HTTP verbs
 Write-Host "Allowing PROPFIND and OPTIONS verbs..."
-Add-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/security/requestFiltering/verbs" -Location $location -Name . -Value @{verb='PROPFIND';allowed='True'}
-Add-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/security/requestFiltering/verbs" -Location $location -Name . -Value @{verb='OPTIONS';allowed='True'}
+$verbsPath = 'system.webServer/security/requestFiltering/verbs'
+$existingVerbs = Get-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter $verbsPath -Location $location -Name . | ForEach-Object { $_.verb }
+if (-not ($existingVerbs -contains 'PROPFIND')) {
+    Add-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter $verbsPath -Location $location -Name . -Value @{verb='PROPFIND';allowed='True'}
+}
+if (-not ($existingVerbs -contains 'OPTIONS')) {
+    Add-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter $verbsPath -Location $location -Name . -Value @{verb='OPTIONS';allowed='True'}
+}
 
 # 8. Configure Authentication
 Write-Host "Configuring authentication..."
