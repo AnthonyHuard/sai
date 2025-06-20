@@ -23,7 +23,7 @@ try {
         $result = Install-WindowsFeature $toInstall -IncludeAllSubFeature -IncludeManagementTools
         Write-Host "Installed features: $($toInstall -join ', ')"
         if ($result.RestartNeeded -eq 'Yes') {
-            Write-Warning 'Un redémarrage est nécessaire pour terminer l\'installation.'
+            Write-Warning "Un redémarrage est nécessaire pour terminer l'installation."
         }
     } else {
         Write-Host "Required features already installed."
